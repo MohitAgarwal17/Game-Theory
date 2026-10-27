@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game-Theoretic Modeling of Autonomous Vehicles at Intersections</title>
+    <meta name="description" content="Interactive research dashboard and 2D simulation for game-theoretic autonomous vehicle coordination at unsignalized intersections.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Navigation Header -->
+        <header class="header">
+            <div class="header-brand">
+                <div class="brand-logo">🚗 ⚡</div>
+                <div class="brand-text">
+                    <h1>Game-Theoretic AV Intersection System</h1>
+                    <p class="subtitle">Multi-Agent Strategic Coordination & Mechanism Design</p>
+                </div>
+            </div>
+            <div class="team-badge">
+                <div class="team-title">Research Team</div>
+                <div class="team-members">
+                    <span>Mohit Agarwal (2427030564)</span> • 
+                    <span>Ineesh Khindria (242703063)</span> • 
+                    <span>Akshit Goel (2427030638)</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs">
+            <button class="nav-btn active" data-tab="simulation">🎮 2D Live Simulation</button>
+            <button class="nav-btn" data-tab="matrix-solver">🧮 Interactive Nash Solver</button>
+            <button class="nav-btn" data-tab="benchmark">📊 Mechanism Benchmark</button>
+            <button class="nav-btn" data-tab="theory">📖 Theoretical Formulation</button>
+        </nav>
+
+        <!-- TAB 1: 2D LIVE SIMULATOR -->
+        <main class="tab-content active" id="tab-simulation">
+            <div class="sim-layout">
+                <!-- Left: Canvas Area -->
+                <div class="canvas-panel card">
+                    <div class="panel-header">
+                        <h2>Intersection Environment (4-Way Autonomous Conflict Zone)</h2>
+                        <div class="sim-status" id="sim-status-badge">Running</div>
+                    </div>
+                    <div class="canvas-wrapper">
+                        <canvas id="sim-canvas" width="760" height="650"></canvas>
+                    </div>
+                    <div class="sim-legend">
+                        <span class="legend-item"><span class="dot av-dot"></span> Autonomous Vehicle (AV)</span>
+                        <span class="legend-item"><span class="dot hdv-dot"></span> Human-Driven (HDV)</span>
+                        <span class="legend-item"><span class="dot emg-dot"></span> Emergency Vehicle</span>
+                        <span class="legend-item"><span class="dot yld-dot"></span> Yielding</span>
+                        <span class="legend-item"><span class="dot crash-dot"></span> Collision</span>
+                    </div>
+                </div>
+
+                <!-- Right: Control Panel & Live HUD -->
+                <div class="control-panel">
+                    <!-- Mechanism Selection -->
+                    <div class="card">
+                        <h3>Strategic Mechanism</h3>
+                        <div class="select-group">
+                            <label for="mechanism-select">Coordination Rule:</label>
+                            <select id="mechanism-select" class="custom-select">
+                                <option value="nash">1. Nash Chicken Game (Decentralized Mixed NE)</option>
+                                <option value="stackelberg" selected>2. Stackelberg Leader-Follower (First-Arrival)</option>
+                                <option value="bayesian">3. Bayesian Mixed Traffic (AV vs Unknown Human)</option>
+                                <option value="auction">4. Vickrey Auction (Second-Price Urgency Bid)</option>
+                                <option value="voting">5. Priority Voting (Weighted Borda Count)</option>
+                                <option value="correlated">6. Correlated Equilibrium (Optimal Traffic Light)</option>
+                            </select>
+                        </div>
+                        <p class="mechanism-desc" id="mechanism-description">
+                            Vehicles observe arrival times. The vehicle closer to the stop line acts as Leader (Goes); the follower best-responds by Yielding. Zero coordination collisions.
+                        </p>
+                        <div class="button-row">
+                            <button id="btn-spawn" class="btn btn-primary">🚗 Spawn Wave</button>
+                            <button id="btn-toggle-pause" class="btn btn-secondary">⏸ Pause</button>
+                            <button id="btn-reset" class="btn btn-danger">🔄 Reset</button>
+                        </div>
+                    </div>
+
+                    <!-- Live Telemetry -->
+                    <div class="card telemetry-card">
+                        <h3>Real-Time Metrics</h3>
+                        <div class="telemetry-grid">
+                            <div class="metric-box">
+                                <div class="metric-val" id="metric-throughput">0</div>
+                                <div class="metric-label">Safe Crossings</div>
+                            </div>
+                            <div class="metric-box danger">
+                                <div class="metric-val" id="metric-collisions">0</div>
+                                <div class="metric-label">Collisions</div>
+                            </div>
+                            <div class="metric-box">
+                                <div class="metric-val" id="metric-avg-delay">0.0s</div>
+                                <div class="metric-label">Avg Delay</div>
+                            </div>
+                            <div class="metric-box highlight">
+                                <div class="metric-val" id="metric-fairness">1.000</div>
+                                <div class="metric-label">Jain's Fairness</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Live Queue / Auction Ledger -->
+                    <div class="card">
+                        <h3>Active Approaching Vehicles</h3>
+                        <div class="vehicle-ledger" id="vehicle-ledger">
+                            <div class="empty-state">No approaching vehicles. Click "Spawn Wave" above.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- TAB 2: INTERACTIVE NASH SOLVER -->
+        <section class="tab-content" id="tab-matrix-solver">
+            <div class="solver-layout">
+                <div class="card matrix-editor-panel">
+                    <h2>Interactive Payoff Matrix (2×2 Strategic Game)</h2>
+                    <p class="section-intro">Configure stage-game payoffs for Player A (Row) and Player B (Column) or load real intersection presets.</p>
+                    
+                    <div class="preset-selector">
+                        <label for="matrix-preset">Predefined Scenario:</label>
+                        <select id="matrix-preset" class="custom-select">
+                            <option value="chicken">Chicken Game (Symmetric Unsignalized Interaction)</option>
+                            <option value="asymmetric">Asymmetric Priority (Main Road vs Side Road)</option>
+                            <option value="coordination">Right-Hand Convention (Pure Coordination)</option>
+                            <option value="prisoners">Selfish Commuters (Prisoner's Dilemma)</option>
+                            <option value="emergency">Emergency Priority Game</option>
+                        </select>
+                    </div>
+
+                    <div class="matrix-table-wrapper">
+                        <table class="matrix-table">
+                            <thead>
+                                <tr>
+                                    <th class="corner-header">Player A \ B</th>
+                                    <th>Action 0: Go</th>
+                                    <th>Action 1: Yield</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <th>Action 0: Go</th>
+                                    <td class="matrix-cell">
+                                        <div class="payoff-input-pair">
+                                            <input type="number" id="cell-00-a" value="-100" class="input-payoff player-a" title="Payoff A">
+                                            <span class="sep">,</span>
+                                            <input type="number" id="cell-00-b" value="-100" class="input-payoff player-b" title="Payoff B">
+                                        </div>
+                                        <div class="cell-label">Collision</div>
+                                    </td>
+                                    <td class="matrix-cell">
+                                        <div class="payoff-input-pair">
+                                            <input type="number" id="cell-01-a" value="10" class="input-payoff player-a" title="Payoff A">
+                                            <span class="sep">,</span>
+                                            <input type="number" id="cell-01-b" value="2" class="input-payoff player-b" title="Payoff B">
+                                        </div>
+                                        <div class="cell-label">A Proceeds, B Yields</div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>Action 1: Yield</th>
+                                    <td class="matrix-cell">
+                                        <div class="payoff-input-pair">
+                                            <input type="number" id="cell-10-a" value="2" class="input-payoff player-a" title="Payoff A">
+                                            <span class="sep">,</span>
+                                            <input type="number" id="cell-10-b" value="10" class="input-payoff player-b" title="Payoff B">
+                                        </div>
+                                        <div class="cell-label">A Yields, B Proceeds</div>
+                                    </td>
+                                    <td class="matrix-cell">
+                                        <div class="payoff-input-pair">
+                                            <input type="number" id="cell-11-a" value="0" class="input-payoff player-a" title="Payoff A">
+                                            <span class="sep">,</span>
+                                            <input type="number" id="cell-11-b" value="0" class="input-payoff player-b" title="Payoff B">
+                                        </div>
+                                        <div class="cell-label">Deadlock</div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <button id="btn-recompute-nash" class="btn btn-primary">⚡ Compute Equilibria</button>
+                </div>
+
+                <!-- Solver Output Card -->
+                <div class="card solver-results-panel">
+                    <h2>Computed Equilibria & Game Analysis</h2>
+                    <div id="nash-results-output">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 3: MECHANISM BENCHMARK -->
+        <section class="tab-content" id="tab-benchmark">
+            <div class="benchmark-layout">
+                <div class="card full-width">
+                    <div class="panel-header">
+                        <h2>Cross-Mechanism Performance Comparison (1000 Monte-Carlo Runs)</h2>
+                        <button id="btn-export-csv" class="btn btn-secondary">📥 Export CSV Data</button>
+                    </div>
+                    <p class="section-intro">Comprehensive empirical metrics comparing decentralized Nash, sequential Stackelberg, Bayesian mixed traffic, Vickrey auction, Priority voting, and Correlated traffic lights.</p>
+                    
+                    <div class="benchmark-table-wrapper">
+                        <table class="benchmark-table">
+                            <thead>
+                                <tr>
+                                    <th>Mechanism</th>
+                                    <th>Collision Rate</th>
+                                    <th>Avg Delay (s)</th>
+                                    <th>Throughput (veh/min)</th>
+                                    <th>Jain's Fairness Index</th>
+                                    <th>Price of Anarchy (PoA)</th>
+                                    <th>Social Welfare</th>
+                                    <th>Key Advantage</th>
+                                </tr>
+                            </thead>
+                            <tbody id="benchmark-table-body">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Visual Comparison Bars -->
+                <div class="chart-grid">
+                    <div class="card">
+                        <h3>Collision Safety Comparison</h3>
+                        <canvas id="chart-safety" width="450" height="240"></canvas>
+                    </div>
+                    <div class="card">
+                        <h3>Throughput & Delay Comparison</h3>
+                        <canvas id="chart-efficiency" width="450" height="240"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 4: THEORETICAL FORMULATION -->
+        <section class="tab-content" id="tab-theory">
+            <div class="theory-layout">
+                <article class="card theory-card">
+                    <h2>1. Normal-Form Game Formulation (Chicken / Hawk-Dove)</h2>
+                    <p>At an unsignalized intersection, vehicles approach simultaneously. Let $S_i = \{\text{Go}, \text{Yield}\}$. The payoff structure reflects:</p>
+                    <ul>
+                        <li><strong>Collision ($u = -100$):</strong> When both agents choose $(\text{Go}, \text{Go})$, resulting in severe physical and economic harm.</li>
+                        <li><strong>Proceed ($u = +10$):</strong> Immediate traversal without deceleration.</li>
+                        <li><strong>Yield ($u = +2$):</strong> Safe traversal with slight delay cost.</li>
+                        <li><strong>Deadlock ($u = 0$):</strong> Both yield, wasting intersection capacity.</li>
+                    </ul>
+                    <p class="math-block">
+                        \text{Mixed NE condition: } q \cdot u_A(\text{Go}, \text{Go}) + (1-q) \cdot u_A(\text{Go}, \text{Yield}) = q \cdot u_A(\text{Yield}, \text{Go}) + (1-q) \cdot u_A(\text{Yield}, \text{Yield})
+                    </p>
+                </article>
+
+                <article class="card theory-card">
+                    <h2>2. Stackelberg Leader-Follower (Extensive Form)</h2>
+                    <p>When arrival times differ, the earlier vehicle commits to an action $a_L \in \{\text{Go}, \text{Yield}\}$. The follower observes $a_L$ and plays its best response $a_F^*(a_L) = \arg\max_{a_F} u_F(a_L, a_F)$.</p>
+                    <p>Backward induction resolves the subgame-perfect equilibrium: Leader commits to <strong>Go</strong> knowing the rational follower will choose <strong>Yield</strong>. This eliminates the coordination failure of simultaneous games.</p>
+                </article>
+
+                <article class="card theory-card">
+                    <h2>3. Bayesian Games with Driver Type Uncertainty</h2>
+                    <p>In mixed traffic, autonomous vehicles interact with human drivers whose risk profiles $\theta \in \{\theta_{\text{aggressive}}, \theta_{\text{cautious}}\}$ are private information. The AV maintains prior $P(\theta_{\text{agg}}) = p$. The Bayesian Nash Equilibrium yields a conservative yielding threshold for the AV to guarantee zero collision probability.</p>
+                </article>
+
+                <article class="card theory-card">
+                    <h2>4. Vickrey Auction (Second-Price Sealed-Bid) Mechanism</h2>
+                    <p>A decentralized intersection controller invites bids $b_i$ corresponding to urgency $v_i$. The vehicle with the highest bid $b_{(1)}$ wins the right-of-way and pays the second-highest bid $p = b_{(2)}$.</p>
+                    <p><strong>Dominant-Strategy Truth-Telling:</strong> Bidding $b_i = v_i$ strictly maximizes expected utility, guaranteeing $100\%$ allocative efficiency without coordination delays.</p>
+                </article>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Game-Theoretic Modeling of Autonomous Vehicles at Intersections • Academic Research & Demonstration Project</p>
+            <p class="footer-sub">Implemented with Python (NumPy, SciPy, Nashpy, Pygame) & Web Technologies • Mohit Agarwal, Ineesh Khindria, Akshit Goel</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
