@@ -9,6 +9,23 @@ import os
 import sys
 import json
 
+# Ensure stdout/stderr handle UTF-8 cleanly on Windows
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+# Configure writable matplotlib cache directory
+mpl_cache = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".mplcache"))
+os.makedirs(mpl_cache, exist_ok=True)
+os.environ.setdefault("MPLCONFIGDIR", mpl_cache)
+
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -16,7 +33,6 @@ import numpy as np
 import pandas as pd
 
 from src.games.normal_form import NormalFormGame
-
 from src.games.extensive_form import ExtensiveFormGame
 from src.games.bayesian_game import BayesianGame
 from src.games.repeated_game import RepeatedGame, StrategyType
@@ -67,7 +83,7 @@ def run_all_experiments():
     nash_solver = NashSolver()
     equilibria = nash_solver.solve(game_chicken)
 
-    print(f"  • Found {len(equilibria)} Nash Equilibria for Chicken Game:")
+    print(f"  * Found {len(equilibria)} Nash Equilibria for Chicken Game:")
     for i, eq in enumerate(equilibria, 1):
         ptype = "Pure" if eq.is_pure else "Mixed"
         print(f"    - EQ {i} ({ptype}): {eq.strategy_label(game_chicken)} | Payoffs: ({eq.payoff_a:.2f}, {eq.payoff_b:.2f}) | Pareto Optimal: {eq.is_pareto_optimal}")
@@ -75,7 +91,7 @@ def run_all_experiments():
     # Generate and save plots
     plot_payoff_matrix(game_chicken, filepath="results/figures/chicken_payoff_matrix.png", title="Chicken Game Payoff Heatmap")
     plot_best_response(game_chicken, filepath="results/figures/chicken_best_response.png")
-    print("  ✓ Saved chicken_payoff_matrix.png & chicken_best_response.png")
+    print("  [OK] Saved chicken_payoff_matrix.png & chicken_best_response.png")
 
     # ------------------------------------------------------------------------
     # 2. STACKELBERG LEADER-FOLLOWER GAME
@@ -83,14 +99,13 @@ def run_all_experiments():
     print("\n[2/6] Solving Extensive-Form Stackelberg Games...")
     stack_solver = StackelbergSolver()
     stack_eq = stack_solver.solve_from_normal_form(game_chicken)
-    print(f"  • Stackelberg Equilibrium:")
+    print(f"  * Stackelberg Equilibrium:")
     print(f"    - Leader Action: {'Go' if stack_eq.leader_action == 0 else 'Yield'}")
     print(f"    - Leader Payoff: {stack_eq.leader_payoff} | Follower Payoff: {stack_eq.follower_payoff}")
     print(f"    - Outcome: {stack_eq.outcome}")
 
     advantage = stack_solver.compare_leader_advantage(game_chicken)
     print(f"    - First-Mover Advantage: A as leader gets {advantage['a_leads']['leader_payoff']}, B as leader gets {advantage['b_leads']['leader_payoff']}")
-
 
     # ------------------------------------------------------------------------
     # 3. BAYESIAN GAMES (MIXED TRAFFIC: AV vs. HUMAN)
@@ -99,7 +114,7 @@ def run_all_experiments():
     bayesian_game = BayesianGame.create_av_vs_human(prob_aggressive=0.35)
     bayesian_solver = BayesianSolver()
     b_result = bayesian_solver.solve(bayesian_game)
-    print(f"  • Found {b_result.num_equilibria} Bayesian Nash Equilibrium:")
+    print(f"  * Found {b_result.num_equilibria} Bayesian Nash Equilibrium:")
     print(f"    - AV Yield Probability: {b_result.av_yield_rate:.1%}")
     print(f"    - Expected Collision Rate: {b_result.expected_collision_rate:.2%}")
 
@@ -108,14 +123,14 @@ def run_all_experiments():
     # ------------------------------------------------------------------------
     print("\n[4/6] Running Mechanism Design (Vickrey vs. First-Price Auction)...")
     auction_comp = compare_auction_mechanisms(n_vehicles=4, n_trials=500)
-    print(f"  • Auction Results (500 trials, 4 vehicles):")
+    print(f"  * Auction Results (500 trials, 4 vehicles):")
     print(f"    - Vickrey Second-Price: Efficiency={auction_comp['vickrey']['avg_efficiency']:.1%}, Revenue={auction_comp['vickrey']['avg_revenue']:.2f}")
     print(f"    - First-Price Sealed:   Efficiency={auction_comp['first_price']['avg_efficiency']:.1%}, Revenue={auction_comp['first_price']['avg_revenue']:.2f}")
 
     # Save to data CSV
     df_auction = pd.DataFrame(auction_comp).T
     df_auction.to_csv("results/data/auction_comparison.csv")
-    print("  ✓ Saved results/data/auction_comparison.csv")
+    print("  [OK] Saved results/data/auction_comparison.csv")
 
     # ------------------------------------------------------------------------
     # 5. REPEATED GAMES & COOPERATION EVOLUTION
@@ -129,7 +144,7 @@ def run_all_experiments():
         strategy_b=StrategyType.TIT_FOR_TAT,
     )
     rep_res = rep_game.play()
-    print(f"  • Tit-for-Tat vs. Tit-for-Tat:")
+    print(f"  * Tit-for-Tat vs. Tit-for-Tat:")
     print(f"    - Cooperation Rate A: {rep_res['cooperation_rate_a']:.1%}")
     print(f"    - Cooperation Rate B: {rep_res['cooperation_rate_b']:.1%}")
     print(f"    - Total Discounted Payoff A: {rep_res['total_payoff_a']:.2f} | B: {rep_res['total_payoff_b']:.2f}")
@@ -140,8 +155,7 @@ def run_all_experiments():
         "Tit-for-Tat",
         filepath="results/figures/repeated_game_convergence.png",
     )
-    print("  ✓ Saved results/figures/repeated_game_convergence.png")
-
+    print("  [OK] Saved results/figures/repeated_game_convergence.png")
 
     # ------------------------------------------------------------------------
     # 6. FULL MULTI-MECHANISM COMPARISON & SIMULATION CAPTURE
@@ -150,11 +164,10 @@ def run_all_experiments():
     comparator = MechanismComparator()
     comp_results = comparator.compare_all(game_chicken)
     plot_mechanism_comparison(comp_results, filepath="results/figures/mechanism_comparison.png")
-    print("  ✓ Saved results/figures/mechanism_comparison.png")
+    print("  [OK] Saved results/figures/mechanism_comparison.png")
 
     # Save comparison data JSON
     with open("results/data/mechanism_comparison.json", "w") as f:
-        # Convert non-serializable objects
         clean_res = {
             k: {
                 sub_k: (float(sub_v) if isinstance(sub_v, (np.floating, float, int, np.integer)) else str(sub_v))
@@ -164,10 +177,10 @@ def run_all_experiments():
             for k, v in comp_results.items()
         }
         json.dump(clean_res, f, indent=2)
-    print("  ✓ Saved results/data/mechanism_comparison.json")
+    print("  [OK] Saved results/data/mechanism_comparison.json")
 
     # Headless simulation run & screenshot capture
-    print("  • Generating simulation snapshot screenshot...")
+    print("  * Generating simulation snapshot screenshot...")
     renderer = IntersectionRenderer(headless=True)
     env = Intersection()
     env.add_vehicle(Vehicle("AV_North", "north", is_av=True, urgency=7.5))
@@ -184,7 +197,7 @@ def run_all_experiments():
     renderer.render(env, tm)
     renderer.save_screenshot("results/figures/simulation_screenshot.png")
     renderer.close()
-    print("  ✓ Saved results/figures/simulation_screenshot.png")
+    print("  [OK] Saved results/figures/simulation_screenshot.png")
 
     print("\n" + "=" * 70)
     print("  ALL DEMO EXPERIMENTS COMPLETED SUCCESSFULLY!")

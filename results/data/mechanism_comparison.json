@@ -7,9 +7,9 @@
     "num_equilibria": 3.0
   },
   "Nash (Worst)": {
-    "social_welfare": 0.3571428571428571,
+    "social_welfare": 0.3571428571428572,
     "payoff_a": 0.1785714285714286,
-    "payoff_b": 0.17857142857142852
+    "payoff_b": 0.1785714285714286
   },
   "Stackelberg": {
     "social_welfare": 12.0,
@@ -35,10 +35,10 @@
     "payoff_b": 2.0
   },
   "_price_of_anarchy": {
-    "price_of_anarchy": 33.6,
+    "price_of_anarchy": 33.599999999999994,
     "price_of_stability": 1.0,
     "social_optimum": 12.0,
-    "worst_ne_welfare": 0.3571428571428571,
+    "worst_ne_welfare": 0.3571428571428572,
     "best_ne_welfare": 12.0,
     "num_equilibria": 3.0
   }
