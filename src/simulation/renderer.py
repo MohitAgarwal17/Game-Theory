@@ -264,7 +264,6 @@ class IntersectionRenderer:
 
         if not self.headless:
             pygame.display.flip()
-            self.clock.tick(WINDOW["fps"])
 
     def save_screenshot(self, filepath: str):
         """Save current frame to disk."""
@@ -274,3 +273,97 @@ class IntersectionRenderer:
     def close(self):
         """Clean up Pygame resources."""
         pygame.quit()
+
+
+def run_interactive():
+    """Run interactive simulation loop with keyboard controls."""
+    import sys
+    import random
+
+    renderer = IntersectionRenderer(headless=False)
+    intersection = Intersection()
+    traffic_mgr = TrafficManager(mode="nash")
+
+    clock = pygame.time.Clock()
+    running = True
+    paused = False
+
+    directions = ["north", "south", "east", "west"]
+    vehicle_counter = 0
+
+    def spawn_batch():
+        nonlocal vehicle_counter
+        # Pick 2-4 distinct directions
+        dirs = random.sample(directions, k=random.choice([2, 2, 3, 4]))
+        for d in dirs:
+            vehicle_counter += 1
+            v_id = f"V{vehicle_counter}"
+            urgency = round(random.uniform(2.0, 15.0), 1)
+            is_av = random.random() < 0.75
+            is_emergency = random.random() < 0.08
+            driver_type = random.choices(
+                ["aggressive", "cautious", "rational_av"],
+                weights=[0.3, 0.3, 0.4] if not is_av else [0.0, 0.0, 1.0],
+            )[0]
+            v = Vehicle(
+                vehicle_id=v_id,
+                direction=d,
+                is_av=is_av,
+                urgency=urgency,
+                is_emergency=is_emergency,
+                driver_type=driver_type,
+            )
+            intersection.add_vehicle(v)
+
+    # Initial spawn
+    spawn_batch()
+    spawn_timer = 0.0
+
+    while running:
+        dt = clock.tick(WINDOW.get("fps", 60)) / 1000.0
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+                elif event.key == pygame.K_SPACE:
+                    paused = not paused
+                elif event.key == pygame.K_n:
+                    traffic_mgr.mode = "nash"
+                elif event.key == pygame.K_s:
+                    traffic_mgr.mode = "stackelberg"
+                elif event.key == pygame.K_b:
+                    traffic_mgr.mode = "bayesian"
+                elif event.key == pygame.K_a:
+                    traffic_mgr.mode = "auction"
+                elif event.key == pygame.K_v:
+                    traffic_mgr.mode = "voting"
+                elif event.key == pygame.K_c:
+                    traffic_mgr.mode = "correlated"
+                elif event.key == pygame.K_r:
+                    intersection.reset()
+                    spawn_batch()
+
+        if not paused:
+            spawn_timer += dt
+            if spawn_timer >= 5.0:
+                spawn_timer = 0.0
+                if len(intersection.vehicles) < 6:
+                    spawn_batch()
+
+            # The simulation physics is configured in units per step (approx 60 Hz)
+            # Scaling by 60 * dt ensures real-time movement independent of frame rate
+            sim_dt = dt * 60.0
+            traffic_mgr.coordinate(intersection, dt=sim_dt)
+            intersection.step(dt=sim_dt)
+
+        renderer.render(intersection, traffic_mgr)
+
+    renderer.close()
+
+
+if __name__ == "__main__":
+    run_interactive()
+

@@ -58,6 +58,8 @@ class TrafficManager:
 
         # Cache negotiation states
         self.negotiation_done = False
+        self.active_pair: Optional[Tuple[str, str]] = None
+        self.active_winner: Optional[str] = None
         self.current_signal_phase = "NS"  # 'NS' or 'EW'
         self.signal_timer = 0.0
         self.signal_period = 80.0  # steps per phase
@@ -66,6 +68,62 @@ class TrafficManager:
         """Change negotiation controller mode."""
         self.mode = mode.lower()
         self.negotiation_done = False
+        self.active_pair = None
+        self.active_winner = None
+
+    def _enforce_car_following(self, active_vehicles: List[Vehicle]):
+        """
+        Enforce safety distance between vehicles traveling in the same lane.
+        Trailing vehicles must yield/brake if approaching a lead vehicle.
+        """
+        by_direction: Dict[str, List[Vehicle]] = {
+            "north": [], "south": [], "east": [], "west": []
+        }
+        for v in active_vehicles:
+            if v.direction in by_direction:
+                by_direction[v.direction].append(v)
+
+        # Sort each lane so the vehicle closest to / farthest along the path is first
+        for direction, vehicles in by_direction.items():
+            if len(vehicles) < 2:
+                continue
+
+            if direction == "north":
+                # Moving southward: y increases. Larger y is ahead.
+                vehicles.sort(key=lambda v: v.y, reverse=True)
+                for i in range(1, len(vehicles)):
+                    lead = vehicles[i - 1]
+                    trail = vehicles[i]
+                    gap = lead.y - trail.y
+                    if gap < 45.0:
+                        trail.set_action("yield")
+            elif direction == "south":
+                # Moving northward: y decreases. Smaller y is ahead.
+                vehicles.sort(key=lambda v: v.y)
+                for i in range(1, len(vehicles)):
+                    lead = vehicles[i - 1]
+                    trail = vehicles[i]
+                    gap = trail.y - lead.y
+                    if gap < 45.0:
+                        trail.set_action("yield")
+            elif direction == "east":
+                # Moving westward: x decreases. Smaller x is ahead.
+                vehicles.sort(key=lambda v: v.x)
+                for i in range(1, len(vehicles)):
+                    lead = vehicles[i - 1]
+                    trail = vehicles[i]
+                    gap = trail.x - lead.x
+                    if gap < 45.0:
+                        trail.set_action("yield")
+            elif direction == "west":
+                # Moving eastward: x increases. Larger x is ahead.
+                vehicles.sort(key=lambda v: v.x, reverse=True)
+                for i in range(1, len(vehicles)):
+                    lead = vehicles[i - 1]
+                    trail = vehicles[i]
+                    gap = lead.x - trail.x
+                    if gap < 45.0:
+                        trail.set_action("yield")
 
     def coordinate(self, intersection: Intersection, dt: float = 1.0):
         """
@@ -103,33 +161,51 @@ class TrafficManager:
             for v in approaching:
                 v.set_action("slow")
 
+        # Crucial safety layer: prevent rear-end collisions in the same lane
+        self._enforce_car_following(active_vehicles)
+
     def _handle_nash(self, approaching: List[Vehicle]):
         """
         Solve normal-form Chicken game between two approaching vehicles.
-        Uses mixed strategy probabilities to simulate decentralized simultaneous decision.
+        Negotiates pure or mixed strategy equilibrium and maintains action
+        until crossing resolution rather than re-rolling mixed probabilities every frame.
         """
         if len(approaching) < 2:
+            self.active_pair = None
             for v in approaching:
                 v.set_action("go")
             return
 
         v1, v2 = approaching[0], approaching[1]
+        pair = (v1.vehicle_id, v2.vehicle_id)
+
+        # If already negotiated for this current pair and both are still active, keep actions
+        if self.active_pair == pair and v1.action in ("go", "yield") and v2.action in ("go", "yield"):
+            if v1.action == "yield" and (v2.has_passed or v2.state == "crossing"):
+                # If leader is crossing or has passed, yielding car can proceed safely
+                if v2.has_passed or v2.distance_to_center > 40:
+                    v1.set_action("go")
+            elif v2.action == "yield" and (v1.has_passed or v1.state == "crossing"):
+                if v1.has_passed or v1.distance_to_center > 40:
+                    v2.set_action("go")
+            return
+
+        self.active_pair = pair
         game = chicken_game()
         equilibria = self.nash_solver.find_all_equilibria(game)
 
-        # If mixed strategy equilibrium exists, sample actions from mixed profile
-        if equilibria.get("mixed"):
-            sigma_a, sigma_b = equilibria["mixed"][0]
-            # sigma_a[0] is prob(Go), sigma_a[1] is prob(Yield)
-            act_a = "go" if random.random() < sigma_a[0] else "yield"
-            act_b = "go" if random.random() < sigma_b[0] else "yield"
+        if equilibria.get("pure"):
+            # Select pure Nash equilibrium (Go, Yield) or (Yield, Go)
+            pure_ne = random.choice(equilibria["pure"])
+            labels = ["go", "yield"]
+            act_a = labels[pure_ne[0]]
+            act_b = labels[pure_ne[1]]
             v1.set_action(act_a)
             v2.set_action(act_b)
-        elif equilibria.get("pure"):
-            # Randomly select between the pure NE (Go, Yield) or (Yield, Go)
-            pure_ne = random.choice(equilibria["pure"])
-            act_a = game.strategy_labels_a[pure_ne[0]].lower()
-            act_b = game.strategy_labels_b[pure_ne[1]].lower()
+        elif equilibria.get("mixed"):
+            sigma_a, sigma_b = equilibria["mixed"][0]
+            act_a = "go" if random.random() < sigma_a[0] else "yield"
+            act_b = "go" if random.random() < sigma_b[0] else "yield"
             v1.set_action(act_a)
             v2.set_action(act_b)
         else:
@@ -194,10 +270,26 @@ class TrafficManager:
         """
         Vickrey second-price sealed-bid auction for right-of-way.
         Highest bidder wins and proceeds; others yield in priority order.
+        Maintains winner priority until they clear the intersection.
         """
         if not approaching:
             return
+
+        # If previous winner is still active and approaching/crossing, retain priority
+        if self.active_winner:
+            matching = [v for v in approaching if v.vehicle_id == self.active_winner]
+            if matching and not matching[0].has_passed:
+                for v in approaching:
+                    if v.vehicle_id == self.active_winner:
+                        v.set_action("go")
+                    else:
+                        v.set_action("yield")
+                return
+            else:
+                self.active_winner = None
+
         if len(approaching) == 1:
+            self.active_winner = approaching[0].vehicle_id
             approaching[0].set_action("go")
             return
 
@@ -214,6 +306,7 @@ class TrafficManager:
 
         result = self.vickrey_auction.run(bids)
         winner_id = result.winner
+        self.active_winner = winner_id
 
         for v in approaching:
             if v.vehicle_id == winner_id:
@@ -225,10 +318,26 @@ class TrafficManager:
         """
         Priority-weighted Borda Count voting mechanism.
         Vehicles vote on traversal priority sequence.
+        Maintains winning voter's right-of-way until they clear the intersection.
         """
         if not approaching:
             return
+
+        # If previous winner is still active and approaching/crossing, retain priority
+        if self.active_winner:
+            matching = [v for v in approaching if v.vehicle_id == self.active_winner]
+            if matching and not matching[0].has_passed:
+                for v in approaching:
+                    if v.vehicle_id == self.active_winner:
+                        v.set_action("go")
+                    else:
+                        v.set_action("yield")
+                return
+            else:
+                self.active_winner = None
+
         if len(approaching) == 1:
+            self.active_winner = approaching[0].vehicle_id
             approaching[0].set_action("go")
             return
 
@@ -249,6 +358,7 @@ class TrafficManager:
 
         res = self.voting.borda_count(voters, candidates, weighted=True)
         winner_id = res.winner
+        self.active_winner = winner_id
 
         for v in approaching:
             if v.vehicle_id == winner_id:
@@ -259,25 +369,39 @@ class TrafficManager:
     def _handle_correlated_signal(self, active_vehicles: List[Vehicle], dt: float):
         """
         Correlated Equilibrium implementation via timed phase coordination.
-        Ensures 100% collision-free crossing with optimal social welfare.
+        Ensures 100% collision-free crossing with clearance interval (yellow/all-red)
+        preventing newly green traffic from entering before perpendicular traffic clears.
         """
         self.signal_timer += dt
         if self.signal_timer >= self.signal_period:
             self.signal_timer = 0.0
             self.current_signal_phase = "EW" if self.current_signal_phase == "NS" else "NS"
 
+        # Check if any vehicle from conflicting perpendicular direction is still inside the intersection box
+        ns_in_box = any(
+            v.is_in_intersection for v in active_vehicles
+            if v.direction in ("north", "south") and not v.has_passed
+        )
+        ew_in_box = any(
+            v.is_in_intersection for v in active_vehicles
+            if v.direction in ("east", "west") and not v.has_passed
+        )
+
         for v in active_vehicles:
             if v.is_in_intersection or v.has_passed:
+                # Once already inside intersection, proceed to clear the junction
                 v.set_action("go")
                 continue
 
             if self.current_signal_phase == "NS":
-                if v.direction in ("north", "south"):
+                # Green for NS, but hold if EW vehicle is still clearing the box
+                if v.direction in ("north", "south") and not ew_in_box:
                     v.set_action("go")
                 else:
                     v.set_action("yield")
             else:  # EW phase
-                if v.direction in ("east", "west"):
+                # Green for EW, but hold if NS vehicle is still clearing the box
+                if v.direction in ("east", "west") and not ns_in_box:
                     v.set_action("go")
                 else:
                     v.set_action("yield")
